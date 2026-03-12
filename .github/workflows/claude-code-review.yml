@@ -1,0 +1,36 @@
+name: Claude Code Review
+
+# Runs automatically on every new PR and when PRs are updated
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  # Also allows manual trigger from the Actions tab
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    # Only run on PR events, or on issue comments that are on PRs and from non-bots
+    if: >
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && !github.event.comment.user.login == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+    steps:
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          review_comment_prefix: "🔍 **Claude Review:**"
+          direct_prompt: |
+            Review this PR thoroughly. Focus on:
+            1. Security issues (auth bypass, injection, data exposure, CORS misconfig)
+            2. AWS best practices (IAM permissions, DynamoDB access patterns, Lambda error handling)
+            3. React anti-patterns (missing keys, stale closures, memory leaks)
+            4. Logic errors and edge cases
+            5. Code quality and maintainability
+
+            Be specific. Include file paths and line numbers. Rate each finding as Critical/High/Medium/Low.
