@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: GenAI Review Form Backend API
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    MemorySize: 256
+    Timeout: 15
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref GenAIReviewFormsTable
+        REGION: us-east-1
+
+Resources:
+  # -------------------------------------------------------
+  # DynamoDB Table
+  # -------------------------------------------------------
+  GenAIReviewFormsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: GenAIReviewForms
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+        - AttributeName: GSI2PK
+          AttributeType: S
+        - AttributeName: GSI2SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI2
+          KeySchema:
+            - AttributeName: GSI2PK
+              KeyType: HASH
+            - AttributeName: GSI2SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # -------------------------------------------------------
+  # Cognito User Pool
+  # -------------------------------------------------------
+  GenAIReviewUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: GenAIReviewUserPool
+      Schema:
+        - Name: role
+          AttributeDataType: String
+          Mutable: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+      AutoVerifiedAttributes:
+        - email
+
+  GenAIReviewAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: GenAIReviewAppClient
+      UserPoolId: !Ref GenAIReviewUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  # -------------------------------------------------------
+  # API Gateway (REST)
+  # -------------------------------------------------------
+  GenAIReviewApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      Cors:
+        AllowOrigin: "'*'"
+        AllowMethods: "'GET,POST,PUT,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt GenAIReviewUserPool.Arn
+
+  # -------------------------------------------------------
+  # Lambda Functions
+  # -------------------------------------------------------
+  CreateFormFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/createForm.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GenAIReviewFormsTable
+      Events:
+        CreateForm:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GenAIReviewApi
+            Path: /forms
+            Method: POST
+
+  ListFormsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/listForms.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GenAIReviewFormsTable
+      Events:
+        ListForms:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GenAIReviewApi
+            Path: /forms
+            Method: GET
+
+  GetFormFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/getForm.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GenAIReviewFormsTable
+      Events:
+        GetForm:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GenAIReviewApi
+            Path: /forms/{formId}
+            Method: GET
+
+  UpdateFormFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/updateForm.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GenAIReviewFormsTable
+      Events:
+        UpdateForm:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GenAIReviewApi
+            Path: /forms/{formId}
+            Method: PUT
+
+  TransitionStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/transitionStatus.handler
+      CodeUri: .
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GenAIReviewFormsTable
+      Events:
+        TransitionStatus:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GenAIReviewApi
+            Path: /forms/{formId}/transition
+            Method: POST
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${GenAIReviewApi}.execute-api.${AWS::Region}.amazonaws.com/dev/"
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref GenAIReviewUserPool
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref GenAIReviewAppClient
+  TableName:
+    Description: DynamoDB Table Name
+    Value: !Ref GenAIReviewFormsTable
