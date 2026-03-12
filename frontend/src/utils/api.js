@@ -24,8 +24,8 @@ async function request(method, path, token, body = null) {
 const api = {
   createForm: (token) => request('POST', '/forms', token),
 
-  listForms: (token, cursor = null) => {
-    const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  listForms: (token, nextToken = null) => {
+    const qs = nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : '';
     return request('GET', `/forms${qs}`, token);
   },
 

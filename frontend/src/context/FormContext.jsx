@@ -71,13 +71,31 @@ function formReducer(state, action) {
   }
 }
 
+/**
+ * Returns only the data sections a given role is allowed to save.
+ * This prevents the backend from rejecting auto-save requests
+ * due to role-based access restrictions.
+ */
+function getSectionsForRole(role, state) {
+  switch (role) {
+    case 'requester':
+      return { formData: state.formData };
+    case 'reviewer':
+      return { riskLibrary: state.riskLibrary, reviewerAssessment: state.reviewerAssessment };
+    case 'approver':
+      return { approverDecision: state.approverDecision };
+    default:
+      return {};
+  }
+}
+
 export function FormProvider({ children }) {
   const [state, dispatch] = useReducer(formReducer, initialState);
-  const { getToken } = useAuth();
+  const { getToken, user } = useAuth();
   const saveTimer = useRef(null);
   const pendingSave = useRef(false);
 
-  // Auto-save with 2-second debounce
+  // Auto-save with 2-second debounce — only sends sections the user's role can edit
   const scheduleSave = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     pendingSave.current = true;
@@ -86,12 +104,8 @@ export function FormProvider({ children }) {
       try {
         dispatch({ type: 'SET_SAVING', payload: true });
         const token = await getToken();
-        await api.updateForm(token, state.formId, {
-          formData: state.formData,
-          riskLibrary: state.riskLibrary,
-          reviewerAssessment: state.reviewerAssessment,
-          approverDecision: state.approverDecision,
-        });
+        const payload = getSectionsForRole(user?.role, state);
+        await api.updateForm(token, state.formId, payload);
         pendingSave.current = false;
         dispatch({ type: 'SET_LAST_SAVED', payload: new Date().toISOString() });
       } catch (err) {
@@ -100,7 +114,7 @@ export function FormProvider({ children }) {
         dispatch({ type: 'SET_SAVING', payload: false });
       }
     }, 2000);
-  }, [state.formId, state.formData, state.riskLibrary, state.reviewerAssessment, state.approverDecision, getToken]);
+  }, [state.formId, state.formData, state.riskLibrary, state.reviewerAssessment, state.approverDecision, getToken, user]);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -136,7 +150,7 @@ export function FormProvider({ children }) {
       dispatch({ type: 'SET_SAVING', payload: true });
       const token = await getToken();
       const result = await api.transitionStatus(token, state.formId, action);
-      dispatch({ type: 'SET_STATUS', payload: result.newStatus });
+      dispatch({ type: 'SET_STATUS', payload: result.status });
       return result;
     } catch (err) {
       dispatch({ type: 'SET_ERROR', payload: err.message });
